@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { applyPriorityAssignment, moveAssignmentSeries, removeAssignmentSeries, scheduleAroundPriorities } from './schedule.js';
+import { applyPriorityAssignment, moveAssignmentSeries, removeAssignmentSeries, resizeAssignmentSeries, scheduleAroundPriorities } from './schedule.js';
 
 const assignment = {
   id: 'base',
@@ -81,6 +81,23 @@ test('moves linked parts as one series and keeps them outside a priority interva
   assert.deepEqual(moveAssignmentSeries([...parts, priority], parts[0], 10, () => 'resumed'), [
     priority,
     { ...assignment, seriesId: 'series', startDate: '2027-01-11', endDate: '2027-02-28' },
+    { ...assignment, seriesId: 'series', id: 'resumed', startDate: '2027-04-01', endDate: '2027-04-25' },
+  ]);
+});
+
+test('resizes the outer boundaries of a linked series around a priority interval', () => {
+  const parts = [
+    { ...assignment, seriesId: 'series', endDate: '2027-02-28' },
+    { ...assignment, id: 'continued', seriesId: 'series', startDate: '2027-04-01', endDate: '2027-04-15' },
+  ];
+  assert.deepEqual(resizeAssignmentSeries([...parts, priority], parts[0], 'start', 10, () => 'resumed'), [
+    priority,
+    { ...assignment, seriesId: 'series', startDate: '2027-01-11', endDate: '2027-02-28' },
+    { ...assignment, seriesId: 'series', id: 'resumed', startDate: '2027-04-01', endDate: '2027-04-15' },
+  ]);
+  assert.deepEqual(resizeAssignmentSeries([...parts, priority], parts[1], 'end', 10, () => 'resumed'), [
+    priority,
+    { ...assignment, seriesId: 'series', endDate: '2027-02-28' },
     { ...assignment, seriesId: 'series', id: 'resumed', startDate: '2027-04-01', endDate: '2027-04-25' },
   ]);
 });

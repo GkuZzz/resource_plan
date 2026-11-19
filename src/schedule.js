@@ -67,15 +67,18 @@ export const removeAssignmentSeries = (assignments, target) => {
   return assignments.filter(assignment => assignmentSeriesKey(assignment) !== seriesKey);
 };
 
-export const moveAssignmentSeries = (assignments, target, delta, createId = newId) => {
+const getSeries = (assignments, target) => {
   const seriesKey = assignmentSeriesKey(target);
   const series = assignments
     .filter(assignment => assignmentSeriesKey(assignment) === seriesKey)
     .sort((a, b) => a.startDate.localeCompare(b.startDate));
   const rest = assignments.filter(assignment => assignmentSeriesKey(assignment) !== seriesKey);
   const duration = series.reduce((total, assignment) => total + (utc(assignment.endDate) - utc(assignment.startDate)) / DAY + 1, 0);
+  return { series, rest, duration };
+};
+
+const rebuildSeries = (series, rest, startDate, duration, createId) => {
   const first = series[0];
-  const startDate = shiftDate(first.startDate, delta);
   const combined = {
     ...first,
     seriesId: first.seriesId || first.id,
@@ -85,4 +88,16 @@ export const moveAssignmentSeries = (assignments, target, delta, createId = newI
   return combined.allocationMode === 'priority'
     ? applyPriorityAssignment(rest, combined, undefined, createId)
     : [...rest, ...scheduleAroundPriorities(combined, rest, createId)];
+};
+
+export const moveAssignmentSeries = (assignments, target, delta, createId = newId) => {
+  const { series, rest, duration } = getSeries(assignments, target);
+  return rebuildSeries(series, rest, shiftDate(series[0].startDate, delta), duration, createId);
+};
+
+export const resizeAssignmentSeries = (assignments, target, mode, delta, createId = newId) => {
+  const { series, rest, duration } = getSeries(assignments, target);
+  const startDate = mode === 'start' ? shiftDate(series[0].startDate, delta) : series[0].startDate;
+  const nextDuration = Math.max(1, mode === 'start' ? duration - delta : duration + delta);
+  return rebuildSeries(series, rest, startDate, nextDuration, createId);
 };

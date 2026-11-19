@@ -1,5 +1,5 @@
 import React, { useMemo, useState, useEffect, useRef } from 'react';
-import { applyPriorityAssignment, assignmentSeriesKey, moveAssignmentSeries, newId, overlaps, removeAssignmentSeries, scheduleAroundPriorities, shiftDate } from './schedule.js';
+import { applyPriorityAssignment, assignmentSeriesKey, moveAssignmentSeries, newId, overlaps, removeAssignmentSeries, resizeAssignmentSeries, scheduleAroundPriorities, shiftDate } from './schedule.js';
 
 const PROJECTS = [
   { id: 'lkk', name: 'ЛКК', color: '#4477d0' },
@@ -156,11 +156,7 @@ export default function App() {
       if (result?.moved) {
         setAssignments(old => {
           if (mode === 'move') return moveAssignmentSeries(old, assignment, result.delta);
-          const updated = { ...assignment, seriesId: assignment.seriesId || assignment.id, startDate: result.startDate, endDate: result.endDate };
-          const rest = old.filter(item => item.id !== assignment.id);
-          return updated.allocationMode === 'priority'
-            ? applyPriorityAssignment(old, updated, assignment.id)
-            : [...rest, ...scheduleAroundPriorities(updated, rest)];
+          return resizeAssignmentSeries(old, assignment, mode, result.delta);
         });
       }
       if (result?.dragged) {
@@ -213,8 +209,13 @@ export default function App() {
             const start = Math.max(0, days(first, shown.startDate));
             const end = Math.min(totalDays, days(first, shown.endDate) + 1);
             const isPriority = a.allocationMode === 'priority';
-            const seriesSize = assignments.filter(item => assignmentSeriesKey(item) === assignmentSeriesKey(a)).length;
-            const title = `${p?.name || a.projectId}: ${fmt(shown.startDate)} — ${fmt(shown.endDate)}${isPriority ? ' · приоритетное назначение' : ''}${seriesSize > 1 ? ` · часть связанного проекта (${seriesSize})` : ''}. ${seriesSize > 1 ? 'Перетащите, чтобы переместить все части проекта.' : 'Перетащите полосу или потяните за её край.'}`;
+            const seriesParts = assignments
+              .filter(item => assignmentSeriesKey(item) === assignmentSeriesKey(a))
+              .sort((left, right) => left.startDate.localeCompare(right.startDate));
+            const seriesSize = seriesParts.length;
+            const isSeriesFirst = seriesParts[0]?.id === a.id;
+            const isSeriesLast = seriesParts.at(-1)?.id === a.id;
+            const title = `${p?.name || a.projectId}: ${fmt(shown.startDate)} — ${fmt(shown.endDate)}${isPriority ? ' · приоритетное назначение' : ''}${seriesSize > 1 ? ` · часть связанного проекта (${seriesSize})` : ''}. ${seriesSize > 1 ? 'Перетащите все части или измените внешнюю границу проекта.' : 'Перетащите полосу или потяните за её край.'}`;
             return <button
               key={a.id}
               className={`bar${dragging?.id === a.id || sameDraggedSeries ? ' dragging' : ''}${isPriority ? ' priority' : ''}${seriesSize > 1 ? ' linked' : ''}`}
@@ -224,9 +225,9 @@ export default function App() {
               onPointerDown={event => beginDrag(event, a, 'move')}
               onClick={() => { if (suppressClickRef.current !== a.id) edit(a); }}
             >
-              {seriesSize === 1 && <span className="resize-handle start" onPointerDown={event => beginDrag(event, a, 'start')} />}
+              {(seriesSize === 1 || isSeriesFirst) && <span className="resize-handle start" onPointerDown={event => beginDrag(event, a, 'start')} />}
               <span className="bar-label">{isPriority ? '★ ' : ''}{seriesSize > 1 ? '↔ ' : ''}{p?.name || a.projectId}</span>
-              {seriesSize === 1 && <span className="resize-handle end" onPointerDown={event => beginDrag(event, a, 'end')} />}
+              {(seriesSize === 1 || isSeriesLast) && <span className="resize-handle end" onPointerDown={event => beginDrag(event, a, 'end')} />}
             </button>;
           })}
         </div></div>;
