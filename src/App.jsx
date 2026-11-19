@@ -1,5 +1,5 @@
 import React, { useMemo, useState, useEffect, useRef } from 'react';
-import { applyPriorityAssignment, newId, overlaps, shiftDate } from './schedule.js';
+import { applyPriorityAssignment, assignmentSeriesKey, moveAssignmentSeries, newId, overlaps, removeAssignmentSeries, scheduleAroundPriorities, shiftDate } from './schedule.js';
 
 const PROJECTS = [
   { id: 'lkk', name: 'ЛКК', color: '#4477d0' },
@@ -81,15 +81,21 @@ export default function App() {
     e.preventDefault();
     if (editing.startDate > editing.endDate) { setError('Дата окончания не может быть раньше даты начала'); return; }
     if (conflictCount > 0 && !editing.allocationMode) { setError('Выберите, как учитывать пересечение с другим проектом'); return; }
-    const next = { ...editing, allocationMode: conflictCount > 0 ? editing.allocationMode : 'parallel', id: editing.id || newId() };
-    setAssignments(old => next.allocationMode === 'priority'
-      ? applyPriorityAssignment(old, next, editing.id)
-      : editing.id
-        ? old.map(a => a.id === editing.id ? next : a)
-        : [...old, next]);
+    const id = editing.id || newId();
+    const next = { ...editing, allocationMode: conflictCount > 0 ? editing.allocationMode : 'parallel', id, seriesId: editing.seriesId || id };
+    setAssignments(old => {
+      if (next.allocationMode === 'priority') return applyPriorityAssignment(old, next, editing.id);
+      const rest = old.filter(assignment => assignment.id !== editing.id);
+      return [...rest, ...scheduleAroundPriorities(next, rest)];
+    });
     setEditing(null);
   };
-  const remove = () => { if (window.confirm('Удалить это назначение?')) { setAssignments(old => old.filter(a => a.id !== editing.id)); setEditing(null); } };
+  const remove = () => {
+    const seriesKey = assignmentSeriesKey(editing);
+    const parts = assignments.filter(assignment => assignmentSeriesKey(assignment) === seriesKey).length;
+    const message = parts > 1 ? `Удалить все части проекта (${parts})?` : 'Удалить это назначение?';
+    if (window.confirm(message)) { setAssignments(old => removeAssignmentSeries(old, editing)); setEditing(null); }
+  };
   const beginDrag = (event, assignment, mode) => {
     if (event.button !== 0) return;
     event.preventDefault();
@@ -101,7 +107,7 @@ export default function App() {
     const pointerId = event.pointerId;
     const originX = event.clientX;
     const duration = days(assignment.startDate, assignment.endDate);
-    const snapshot = { ...assignment, mode, moved: false, dragged: false };
+    const snapshot = { ...assignment, mode, seriesKey: assignmentSeriesKey(assignment), delta: 0, moved: false, dragged: false };
     event.currentTarget.setPointerCapture?.(pointerId);
 
     const onPointerMove = moveEvent => {
@@ -129,6 +135,7 @@ export default function App() {
         ...snapshot,
         startDate,
         endDate,
+        delta,
         moved: delta !== 0,
         dragged: dragRef.current?.dragged || Math.abs(moveEvent.clientX - originX) > 3,
       };
@@ -147,9 +154,14 @@ export default function App() {
       const result = dragRef.current;
       cleanup();
       if (result?.moved) {
-        setAssignments(old => old.map(item => item.id === assignment.id
-          ? { ...item, startDate: result.startDate, endDate: result.endDate }
-          : item));
+        setAssignments(old => {
+          if (mode === 'move') return moveAssignmentSeries(old, assignment, result.delta);
+          const updated = { ...assignment, seriesId: assignment.seriesId || assignment.id, startDate: result.startDate, endDate: result.endDate };
+          const rest = old.filter(item => item.id !== assignment.id);
+          return updated.allocationMode === 'priority'
+            ? applyPriorityAssignment(old, updated, assignment.id)
+            : [...rest, ...scheduleAroundPriorities(updated, rest)];
+        });
       }
       if (result?.dragged) {
         suppressClickRef.current = assignment.id;
@@ -193,24 +205,28 @@ export default function App() {
         return <div className="person-row" key={person.id}><div className="person"><strong>{person.name}</strong><small>{person.role} · {rows.length} назнач.</small><button className="small-add" title="Добавить назначение" onClick={() => edit(blank(year, person.id))}>+</button></div><div className="timeline" style={{ minHeight: `${Math.max(1, rows.length) * 36 + 14}px` }}>
           {periods.slice(1).map(period => <span className={`gridline ${timelineScale}`} key={period.start} style={{ left: `${period.left}%` }} />)}
           {rows.map((a, i) => {
-            const shown = dragging?.id === a.id ? dragging : a;
+            const sameDraggedSeries = dragging?.mode === 'move' && dragging.seriesKey === assignmentSeriesKey(a);
+            const shown = sameDraggedSeries
+              ? { ...a, startDate: shiftDate(a.startDate, dragging.delta), endDate: shiftDate(a.endDate, dragging.delta) }
+              : dragging?.id === a.id ? dragging : a;
             const p = PROJECTS.find(project => project.id === a.projectId);
             const start = Math.max(0, days(first, shown.startDate));
             const end = Math.min(totalDays, days(first, shown.endDate) + 1);
             const isPriority = a.allocationMode === 'priority';
-            const title = `${p?.name || a.projectId}: ${fmt(shown.startDate)} — ${fmt(shown.endDate)}${isPriority ? ' · приоритетное назначение' : ''}. Перетащите полосу или потяните за её край.`;
+            const seriesSize = assignments.filter(item => assignmentSeriesKey(item) === assignmentSeriesKey(a)).length;
+            const title = `${p?.name || a.projectId}: ${fmt(shown.startDate)} — ${fmt(shown.endDate)}${isPriority ? ' · приоритетное назначение' : ''}${seriesSize > 1 ? ` · часть связанного проекта (${seriesSize})` : ''}. ${seriesSize > 1 ? 'Перетащите, чтобы переместить все части проекта.' : 'Перетащите полосу или потяните за её край.'}`;
             return <button
               key={a.id}
-              className={`bar${dragging?.id === a.id ? ' dragging' : ''}${isPriority ? ' priority' : ''}`}
+              className={`bar${dragging?.id === a.id || sameDraggedSeries ? ' dragging' : ''}${isPriority ? ' priority' : ''}${seriesSize > 1 ? ' linked' : ''}`}
               style={{ left: `${start / totalDays * 100}%`, width: `${(end - start) / totalDays * 100}%`, top: `${7 + i * 36}px`, backgroundColor: p?.color || '#777' }}
               title={title}
               aria-label={title}
               onPointerDown={event => beginDrag(event, a, 'move')}
               onClick={() => { if (suppressClickRef.current !== a.id) edit(a); }}
             >
-              <span className="resize-handle start" onPointerDown={event => beginDrag(event, a, 'start')} />
-              <span className="bar-label">{isPriority ? '★ ' : ''}{p?.name || a.projectId}</span>
-              <span className="resize-handle end" onPointerDown={event => beginDrag(event, a, 'end')} />
+              {seriesSize === 1 && <span className="resize-handle start" onPointerDown={event => beginDrag(event, a, 'start')} />}
+              <span className="bar-label">{isPriority ? '★ ' : ''}{seriesSize > 1 ? '↔ ' : ''}{p?.name || a.projectId}</span>
+              {seriesSize === 1 && <span className="resize-handle end" onPointerDown={event => beginDrag(event, a, 'end')} />}
             </button>;
           })}
         </div></div>;
