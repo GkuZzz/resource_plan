@@ -19,17 +19,20 @@ export const applyPriorityAssignment = (assignments, priorityAssignment, previou
     }
 
     const hasBefore = assignment.startDate < priorityAssignment.startDate;
-    const hasAfter = assignment.endDate > priorityAssignment.endDate;
     if (hasBefore) {
       result.push({ ...assignment, endDate: shiftDate(priorityAssignment.startDate, -1) });
     }
-    if (hasAfter) {
-      result.push({
-        ...assignment,
-        id: hasBefore ? createId() : assignment.id,
-        startDate: shiftDate(priorityAssignment.endDate, 1),
-      });
-    }
+
+    const resumedStart = shiftDate(priorityAssignment.endDate, 1);
+    const remainingDays = hasBefore
+      ? (utc(assignment.endDate) - utc(priorityAssignment.startDate)) / DAY + 1
+      : (utc(assignment.endDate) - utc(assignment.startDate)) / DAY + 1;
+    result.push({
+      ...assignment,
+      id: hasBefore ? createId() : assignment.id,
+      startDate: resumedStart,
+      endDate: shiftDate(resumedStart, remainingDays - 1),
+    });
   }
   return [...result, priorityAssignment];
 };

@@ -225,10 +225,10 @@ export default function App() {
       <div className="date-pair"><label>Начало<input required type="date" value={editing.startDate} onChange={e => setEditing(a => ({ ...a, startDate: e.target.value }))}/></label><label>Окончание<input required type="date" value={editing.endDate} onChange={e => setEditing(a => ({ ...a, endDate: e.target.value }))}/></label></div>
       <fieldset className="allocation-mode"><legend>При пересечении сроков</legend>
         <label className={editing.allocationMode === 'parallel' ? 'selected' : ''}><input type="radio" name="allocationMode" value="parallel" checked={editing.allocationMode === 'parallel'} onChange={e => setEditing(a => ({ ...a, allocationMode: e.target.value }))}/><span><strong>Вести параллельно</strong><small>Оставить другие проекты без изменений</small></span></label>
-        <label className={editing.allocationMode === 'priority' ? 'selected' : ''}><input type="radio" name="allocationMode" value="priority" checked={editing.allocationMode === 'priority'} onChange={e => setEditing(a => ({ ...a, allocationMode: e.target.value }))}/><span><strong>Приоритетный проект</strong><small>Разорвать другие проекты на этом интервале</small></span></label>
+        <label className={editing.allocationMode === 'priority' ? 'selected' : ''}><input type="radio" name="allocationMode" value="priority" checked={editing.allocationMode === 'priority'} onChange={e => setEditing(a => ({ ...a, allocationMode: e.target.value }))}/><span><strong>Приоритетный проект</strong><small>Поставить другие проекты на паузу и продолжить после</small></span></label>
       </fieldset>
       {editing.allocationMode === 'priority' && <p className={`conflict-note${conflictCount ? ' has-conflicts' : ''}`}>{conflictCount
-        ? `Будет прервано назначений: ${conflictCount}. Части до и после выбранного интервала сохранятся.`
+        ? `Будет приостановлено назначений: ${conflictCount}. Они продолжатся после приоритетного проекта с сохранением оставшейся длительности.`
         : 'Пересечений с другими проектами нет.'}</p>}
       {error && <p className="error" role="alert">{error}</p>}
       <div className="actions">{editing.id && <button type="button" className="danger" onClick={remove}>Удалить</button>}<span className="grow"/><button type="button" onClick={() => setEditing(null)}>Отмена</button><button className="primary" type="submit">Сохранить</button></div>
