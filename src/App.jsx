@@ -33,7 +33,7 @@ const isoWeek = date => {
   const yearStart = new Date(Date.UTC(value.getUTCFullYear(), 0, 1));
   return Math.ceil((((value - yearStart) / 86400000) + 1) / 7);
 };
-const blank = (year, employeeId = PEOPLE[0].id) => ({ employeeId, projectId: PROJECTS[0].id, startDate: `${year}-01-01`, endDate: `${year}-03-31`, allocationMode: 'parallel' });
+const blank = (year, employeeId = PEOPLE[0].id) => ({ employeeId, projectId: PROJECTS[0].id, startDate: `${year}-01-01`, endDate: `${year}-03-31`, allocationMode: null });
 function load() { try { const value = localStorage.getItem(STORAGE); return value === null ? INITIAL : JSON.parse(value); } catch { return INITIAL; } }
 
 export default function App() {
@@ -76,11 +76,12 @@ export default function App() {
   const periods = timelineScale === 'weeks' ? weeks : months;
   const visible = useMemo(() => assignments.filter(a => a.startDate <= last && a.endDate >= first && (projectFilter === 'all' || a.projectId === projectFilter)), [assignments, year, projectFilter]);
   const people = PEOPLE.filter(p => employeeFilter === 'all' || p.id === employeeFilter);
-  const edit = a => { setError(''); setEditing({ allocationMode: 'parallel', ...a }); };
+  const edit = a => { setError(''); setEditing({ ...a, allocationMode: a.id ? (a.allocationMode || 'parallel') : null }); };
   const save = e => {
     e.preventDefault();
     if (editing.startDate > editing.endDate) { setError('Дата окончания не может быть раньше даты начала'); return; }
-    const next = { ...editing, id: editing.id || newId() };
+    if (conflictCount > 0 && !editing.allocationMode) { setError('Выберите, как учитывать пересечение с другим проектом'); return; }
+    const next = { ...editing, allocationMode: conflictCount > 0 ? editing.allocationMode : 'parallel', id: editing.id || newId() };
     setAssignments(old => next.allocationMode === 'priority'
       ? applyPriorityAssignment(old, next, editing.id)
       : editing.id
@@ -223,13 +224,13 @@ export default function App() {
       <label>Сотрудник<select value={editing.employeeId} onChange={e => setEditing(a => ({ ...a, employeeId: e.target.value }))}>{PEOPLE.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select></label>
       <label>Проект<select value={editing.projectId} onChange={e => setEditing(a => ({ ...a, projectId: e.target.value }))}>{PROJECTS.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select></label>
       <div className="date-pair"><label>Начало<input required type="date" value={editing.startDate} onChange={e => setEditing(a => ({ ...a, startDate: e.target.value }))}/></label><label>Окончание<input required type="date" value={editing.endDate} onChange={e => setEditing(a => ({ ...a, endDate: e.target.value }))}/></label></div>
-      <fieldset className="allocation-mode"><legend>При пересечении сроков</legend>
-        <label className={editing.allocationMode === 'parallel' ? 'selected' : ''}><input type="radio" name="allocationMode" value="parallel" checked={editing.allocationMode === 'parallel'} onChange={e => setEditing(a => ({ ...a, allocationMode: e.target.value }))}/><span><strong>Вести параллельно</strong><small>Оставить другие проекты без изменений</small></span></label>
-        <label className={editing.allocationMode === 'priority' ? 'selected' : ''}><input type="radio" name="allocationMode" value="priority" checked={editing.allocationMode === 'priority'} onChange={e => setEditing(a => ({ ...a, allocationMode: e.target.value }))}/><span><strong>Приоритетный проект</strong><small>Поставить другие проекты на паузу и продолжить после</small></span></label>
-      </fieldset>
-      {editing.allocationMode === 'priority' && <p className={`conflict-note${conflictCount ? ' has-conflicts' : ''}`}>{conflictCount
-        ? `Будет приостановлено назначений: ${conflictCount}. Они продолжатся после приоритетного проекта с сохранением оставшейся длительности.`
-        : 'Пересечений с другими проектами нет.'}</p>}
+      {conflictCount > 0 && <><p className="overlap-warning">Найдено пересечений с другими проектами: {conflictCount}. Выберите способ распределения ресурса.</p>
+        <fieldset className="allocation-mode"><legend>Как учитывать пересечение?</legend>
+          <label className={editing.allocationMode === 'parallel' ? 'selected' : ''}><input type="radio" name="allocationMode" value="parallel" checked={editing.allocationMode === 'parallel'} onChange={e => { setEditing(a => ({ ...a, allocationMode: e.target.value })); setError(''); }}/><span><strong>Вести параллельно</strong><small>Оставить другие проекты без изменений</small></span></label>
+          <label className={editing.allocationMode === 'priority' ? 'selected' : ''}><input type="radio" name="allocationMode" value="priority" checked={editing.allocationMode === 'priority'} onChange={e => { setEditing(a => ({ ...a, allocationMode: e.target.value })); setError(''); }}/><span><strong>Приоритетный проект</strong><small>Поставить другие проекты на паузу и продолжить после</small></span></label>
+        </fieldset>
+        {editing.allocationMode === 'priority' && <p className="conflict-note has-conflicts">Будет приостановлено назначений: {conflictCount}. Они продолжатся после приоритетного проекта с сохранением оставшейся длительности.</p>}
+      </>}
       {error && <p className="error" role="alert">{error}</p>}
       <div className="actions">{editing.id && <button type="button" className="danger" onClick={remove}>Удалить</button>}<span className="grow"/><button type="button" onClick={() => setEditing(null)}>Отмена</button><button className="primary" type="submit">Сохранить</button></div>
     </form></div>}

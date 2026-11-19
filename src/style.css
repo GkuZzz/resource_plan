@@ -89,3 +89,4 @@ button:hover{filter:brightness(.96)}
 .allocation-mode small{font-size:11px;color:#7b8799;font-weight:500}
 .conflict-note{margin:0;padding:10px 12px;border-radius:8px;background:#edf7f3;color:#427363;font-size:12px;line-height:1.45}
 .conflict-note.has-conflicts{background:#fff5e5;color:#8c5b15}
+.overlap-warning{margin:0;padding:10px 12px;border:1px solid #efc66f;border-radius:8px;background:#fff9ec;color:#815816;font-size:12px;line-height:1.45;font-weight:600}
