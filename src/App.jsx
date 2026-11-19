@@ -177,8 +177,8 @@ export default function App() {
       <label>Проект <select value={projectFilter} onChange={e => setProjectFilter(e.target.value)}><option value="all">Все проекты</option>{PROJECTS.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select></label>
       <button onClick={exportJson}>Экспорт JSON</button>
     </section>
-    <section className="board"><div className="scroll"><div className={`gantt ${timelineScale}`}>
-      <div className="gantt-head"><div className="person-heading">Сотрудник</div><div className="months">{periods.map((period, i) => <div key={`${period.start}-${i}`} title={`${fmt(period.start)} — ${fmt(shiftDate(period.end, -1))}`} style={{ left: `${period.left}%`, width: `${period.width}%` }}>{timelineScale === 'weeks' ? <><span className="week-prefix">нед&nbsp;</span>{period.label}</> : period.label}</div>)}</div></div>
+    <section className="board"><div className="scroll"><div className={`gantt scale-${timelineScale}`}>
+      <div className="gantt-head"><div className="person-heading">Сотрудник</div><div className="periods">{periods.map((period, i) => <div key={`${period.start}-${i}`} title={`${fmt(period.start)} — ${fmt(shiftDate(period.end, -1))}`} style={{ left: `${period.left}%`, width: `${period.width}%` }}>{timelineScale === 'weeks' ? <><span className="week-prefix">нед&nbsp;</span>{period.label}</> : period.label}</div>)}</div></div>
       {people.map(person => {
         const rows = visible.filter(a => a.employeeId === person.id).sort((a, b) => a.startDate.localeCompare(b.startDate));
         return <div className="person-row" key={person.id}><div className="person"><strong>{person.name}</strong><small>{person.role} · {rows.length} назнач.</small><button className="small-add" title="Добавить назначение" onClick={() => edit(blank(year, person.id))}>+</button></div><div className="timeline" style={{ minHeight: `${Math.max(1, rows.length) * 36 + 14}px` }}>
