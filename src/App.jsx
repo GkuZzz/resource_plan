@@ -27,6 +27,12 @@ const fmt = s => new Intl.DateTimeFormat('ru-RU', { day: '2-digit', month: 'shor
 const days = (a, b) => (utc(b) - utc(a)) / 86400000;
 const shiftDate = (date, amount) => iso(new Date(utc(date) + amount * 86400000));
 const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
+const isoWeek = date => {
+  const value = new Date(utc(date));
+  value.setUTCDate(value.getUTCDate() + 4 - (value.getUTCDay() || 7));
+  const yearStart = new Date(Date.UTC(value.getUTCFullYear(), 0, 1));
+  return Math.ceil((((value - yearStart) / 86400000) + 1) / 7);
+};
 const blank = (year, employeeId = PEOPLE[0].id) => ({ employeeId, projectId: PROJECTS[0].id, startDate: `${year}-01-01`, endDate: `${year}-03-31` });
 function load() { try { const value = localStorage.getItem(STORAGE); return value === null ? INITIAL : JSON.parse(value); } catch { return INITIAL; } }
 
@@ -35,6 +41,7 @@ export default function App() {
   const [assignments, setAssignments] = useState(load);
   const [employeeFilter, setEmployeeFilter] = useState('all');
   const [projectFilter, setProjectFilter] = useState('all');
+  const [timelineScale, setTimelineScale] = useState('months');
   const [editing, setEditing] = useState(null);
   const [error, setError] = useState('');
   const [dragging, setDragging] = useState(null);
@@ -48,8 +55,25 @@ export default function App() {
   const months = Array.from({ length: 12 }, (_, i) => {
     const start = iso(new Date(Date.UTC(year, i, 1)));
     const end = iso(new Date(Date.UTC(year, i + 1, 1)));
-    return { label: new Intl.DateTimeFormat('ru-RU', { month: 'short', timeZone: 'UTC' }).format(new Date(utc(start))), left: days(first, start) / totalDays * 100, width: days(start, end) / totalDays * 100 };
+    return { label: new Intl.DateTimeFormat('ru-RU', { month: 'short', timeZone: 'UTC' }).format(new Date(utc(start))), start, end, left: days(first, start) / totalDays * 100, width: days(start, end) / totalDays * 100 };
   });
+  const weeks = [];
+  let weekStart = first;
+  while (weekStart < `${year + 1}-01-01`) {
+    const day = new Date(utc(weekStart)).getUTCDay();
+    const length = day === 1 ? 7 : (8 - day) % 7;
+    const weekEnd = shiftDate(weekStart, length || 7);
+    const clippedEnd = weekEnd > `${year + 1}-01-01` ? `${year + 1}-01-01` : weekEnd;
+    weeks.push({
+      label: `${isoWeek(weekStart)}`,
+      start: weekStart,
+      end: clippedEnd,
+      left: days(first, weekStart) / totalDays * 100,
+      width: days(weekStart, clippedEnd) / totalDays * 100,
+    });
+    weekStart = clippedEnd;
+  }
+  const periods = timelineScale === 'weeks' ? weeks : months;
   const visible = useMemo(() => assignments.filter(a => a.startDate <= last && a.endDate >= first && (projectFilter === 'all' || a.projectId === projectFilter)), [assignments, year, projectFilter]);
   const people = PEOPLE.filter(p => employeeFilter === 'all' || p.id === employeeFilter);
   const edit = a => { setError(''); setEditing({ ...a }); };
@@ -145,16 +169,20 @@ export default function App() {
     <header className="top"><div><div className="eyebrow">YANDEX TRACKER · RESOURCE PLANNER</div><h1>Годовой план ресурсов</h1><p>Назначения сотрудников на проекты · пересечения разрешены</p></div><button className="primary" onClick={() => edit(blank(year))}>+ Назначить сотрудника</button></header>
     <section className="toolbar">
       <div className="year"><button onClick={() => setYear(y => y - 1)} aria-label="Предыдущий год">‹</button><strong>{year}</strong><button onClick={() => setYear(y => y + 1)} aria-label="Следующий год">›</button></div>
+      <div className="scale-switch" aria-label="Масштаб таймлайна">
+        <button className={timelineScale === 'months' ? 'active' : ''} aria-pressed={timelineScale === 'months'} onClick={() => setTimelineScale('months')}>Месяцы</button>
+        <button className={timelineScale === 'weeks' ? 'active' : ''} aria-pressed={timelineScale === 'weeks'} onClick={() => setTimelineScale('weeks')}>Недели</button>
+      </div>
       <label>Сотрудник <select value={employeeFilter} onChange={e => setEmployeeFilter(e.target.value)}><option value="all">Все сотрудники</option>{PEOPLE.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select></label>
       <label>Проект <select value={projectFilter} onChange={e => setProjectFilter(e.target.value)}><option value="all">Все проекты</option>{PROJECTS.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select></label>
       <button onClick={exportJson}>Экспорт JSON</button>
     </section>
-    <section className="board"><div className="scroll"><div className="gantt">
-      <div className="gantt-head"><div className="person-heading">Сотрудник</div><div className="months">{months.map((m, i) => <div key={i} style={{ left: `${m.left}%`, width: `${m.width}%` }}>{m.label}</div>)}</div></div>
+    <section className="board"><div className="scroll"><div className={`gantt ${timelineScale}`}>
+      <div className="gantt-head"><div className="person-heading">Сотрудник</div><div className="months">{periods.map((period, i) => <div key={`${period.start}-${i}`} title={`${fmt(period.start)} — ${fmt(shiftDate(period.end, -1))}`} style={{ left: `${period.left}%`, width: `${period.width}%` }}>{timelineScale === 'weeks' ? <><span className="week-prefix">нед&nbsp;</span>{period.label}</> : period.label}</div>)}</div></div>
       {people.map(person => {
         const rows = visible.filter(a => a.employeeId === person.id).sort((a, b) => a.startDate.localeCompare(b.startDate));
         return <div className="person-row" key={person.id}><div className="person"><strong>{person.name}</strong><small>{person.role} · {rows.length} назнач.</small><button className="small-add" title="Добавить назначение" onClick={() => edit(blank(year, person.id))}>+</button></div><div className="timeline" style={{ minHeight: `${Math.max(1, rows.length) * 36 + 14}px` }}>
-          {months.slice(1).map((m, i) => <span className="gridline" key={i} style={{ left: `${m.left}%` }} />)}
+          {periods.slice(1).map(period => <span className={`gridline ${timelineScale}`} key={period.start} style={{ left: `${period.left}%` }} />)}
           {rows.map((a, i) => {
             const shown = dragging?.id === a.id ? dragging : a;
             const p = PROJECTS.find(project => project.id === a.projectId);

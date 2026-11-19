@@ -66,3 +66,14 @@ button:hover{filter:brightness(.96)}
 .resize-handle.end::after{right:3px}
 .drag-readout{color:#315fba;font-weight:700}
 @media(max-width:650px){.resize-handle{width:12px}}
+
+.scale-switch{display:flex;border:1px solid #d8dfeb;border-radius:8px;overflow:hidden;margin-right:6px}
+.scale-switch button{border:0;border-radius:0;padding:9px 12px;color:#647084}
+.scale-switch button+button{border-left:1px solid #d8dfeb}
+.scale-switch button.active{background:#e8f0ff;color:#285dbd;font-weight:700}
+.gantt.weeks{min-width:2100px}
+.gantt.weeks .months>div{font-size:10px;letter-spacing:-.15px}
+.gantt.weeks .gridline{background:#e5eaf3}
+.person-heading{position:sticky;left:0;z-index:5;background:#f0f4fa}
+.person{position:sticky;left:0;z-index:4;background:white}
+@media(max-width:650px){.scale-switch{order:3}.week-prefix{display:none}.gantt.weeks{min-width:1750px}}
