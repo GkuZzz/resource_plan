@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useEffect } from 'react';
+import React, { useMemo, useState, useEffect, useRef } from 'react';
 
 const PROJECTS = [
   { id: 'lkk', name: 'ЛКК', color: '#4477d0' },
@@ -25,6 +25,8 @@ const utc = s => new Date(`${s}T00:00:00Z`).getTime();
 const iso = d => d.toISOString().slice(0, 10);
 const fmt = s => new Intl.DateTimeFormat('ru-RU', { day: '2-digit', month: 'short', year: 'numeric', timeZone: 'UTC' }).format(new Date(utc(s)));
 const days = (a, b) => (utc(b) - utc(a)) / 86400000;
+const shiftDate = (date, amount) => iso(new Date(utc(date) + amount * 86400000));
+const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
 const blank = (year, employeeId = PEOPLE[0].id) => ({ employeeId, projectId: PROJECTS[0].id, startDate: `${year}-01-01`, endDate: `${year}-03-31` });
 function load() { try { const value = localStorage.getItem(STORAGE); return value === null ? INITIAL : JSON.parse(value); } catch { return INITIAL; } }
 
@@ -35,7 +37,11 @@ export default function App() {
   const [projectFilter, setProjectFilter] = useState('all');
   const [editing, setEditing] = useState(null);
   const [error, setError] = useState('');
+  const [dragging, setDragging] = useState(null);
+  const dragRef = useRef(null);
+  const suppressClickRef = useRef(null);
   useEffect(() => { localStorage.setItem(STORAGE, JSON.stringify(assignments)); }, [assignments]);
+  useEffect(() => () => dragRef.current?.cleanup?.(), []);
 
   const first = `${year}-01-01`, last = `${year}-12-31`;
   const totalDays = days(first, `${year + 1}-01-01`);
@@ -55,6 +61,81 @@ export default function App() {
     setEditing(null);
   };
   const remove = () => { if (window.confirm('Удалить это назначение?')) { setAssignments(old => old.filter(a => a.id !== editing.id)); setEditing(null); } };
+  const beginDrag = (event, assignment, mode) => {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const timeline = event.currentTarget.closest('.timeline');
+    const rect = timeline?.getBoundingClientRect();
+    if (!rect?.width) return;
+
+    const pointerId = event.pointerId;
+    const originX = event.clientX;
+    const duration = days(assignment.startDate, assignment.endDate);
+    const snapshot = { ...assignment, mode, moved: false, dragged: false };
+    event.currentTarget.setPointerCapture?.(pointerId);
+
+    const onPointerMove = moveEvent => {
+      if (moveEvent.pointerId !== pointerId) return;
+      const rawDelta = Math.round((moveEvent.clientX - originX) / rect.width * totalDays);
+      let delta = rawDelta;
+      let startDate = assignment.startDate;
+      let endDate = assignment.endDate;
+
+      if (mode === 'move') {
+        delta = clamp(rawDelta, Math.ceil(days(assignment.endDate, first)), Math.floor(days(assignment.startDate, last)));
+        startDate = shiftDate(assignment.startDate, delta);
+        endDate = shiftDate(assignment.endDate, delta);
+      } else if (mode === 'start') {
+        const maxDelta = Math.min(duration, Math.floor(days(assignment.startDate, last)));
+        delta = Math.min(rawDelta, maxDelta);
+        startDate = shiftDate(assignment.startDate, delta);
+      } else {
+        const minDelta = Math.max(-duration, Math.ceil(days(assignment.endDate, first)));
+        delta = Math.max(rawDelta, minDelta);
+        endDate = shiftDate(assignment.endDate, delta);
+      }
+
+      const next = {
+        ...snapshot,
+        startDate,
+        endDate,
+        moved: delta !== 0,
+        dragged: dragRef.current?.dragged || Math.abs(moveEvent.clientX - originX) > 3,
+      };
+      dragRef.current = { ...dragRef.current, ...next };
+      setDragging(next);
+    };
+
+    const cleanup = () => {
+      window.removeEventListener('pointermove', onPointerMove);
+      window.removeEventListener('pointerup', onPointerUp);
+      window.removeEventListener('pointercancel', onPointerUp);
+    };
+
+    const onPointerUp = upEvent => {
+      if (upEvent.pointerId !== pointerId) return;
+      const result = dragRef.current;
+      cleanup();
+      if (result?.moved) {
+        setAssignments(old => old.map(item => item.id === assignment.id
+          ? { ...item, startDate: result.startDate, endDate: result.endDate }
+          : item));
+      }
+      if (result?.dragged) {
+        suppressClickRef.current = assignment.id;
+        window.setTimeout(() => { if (suppressClickRef.current === assignment.id) suppressClickRef.current = null; }, 0);
+      }
+      dragRef.current = null;
+      setDragging(null);
+    };
+
+    dragRef.current = { ...snapshot, cleanup };
+    setDragging(snapshot);
+    window.addEventListener('pointermove', onPointerMove);
+    window.addEventListener('pointerup', onPointerUp);
+    window.addEventListener('pointercancel', onPointerUp);
+  };
   const exportJson = () => {
     const blob = new Blob([JSON.stringify(assignments, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
@@ -74,12 +155,33 @@ export default function App() {
         const rows = visible.filter(a => a.employeeId === person.id).sort((a, b) => a.startDate.localeCompare(b.startDate));
         return <div className="person-row" key={person.id}><div className="person"><strong>{person.name}</strong><small>{person.role} · {rows.length} назнач.</small><button className="small-add" title="Добавить назначение" onClick={() => edit(blank(year, person.id))}>+</button></div><div className="timeline" style={{ minHeight: `${Math.max(1, rows.length) * 36 + 14}px` }}>
           {months.slice(1).map((m, i) => <span className="gridline" key={i} style={{ left: `${m.left}%` }} />)}
-          {rows.map((a, i) => { const p = PROJECTS.find(p => p.id === a.projectId); const start = Math.max(0, days(first, a.startDate)); const end = Math.min(totalDays, days(first, a.endDate) + 1); return <button key={a.id} className="bar" style={{ left: `${start / totalDays * 100}%`, width: `${(end - start) / totalDays * 100}%`, top: `${7 + i * 36}px`, backgroundColor: p?.color || '#777' }} title={`${p?.name || a.projectId}: ${fmt(a.startDate)} — ${fmt(a.endDate)}`} onClick={() => edit(a)}><span>{p?.name || a.projectId}</span></button>; })}
+          {rows.map((a, i) => {
+            const shown = dragging?.id === a.id ? dragging : a;
+            const p = PROJECTS.find(project => project.id === a.projectId);
+            const start = Math.max(0, days(first, shown.startDate));
+            const end = Math.min(totalDays, days(first, shown.endDate) + 1);
+            const title = `${p?.name || a.projectId}: ${fmt(shown.startDate)} — ${fmt(shown.endDate)}. Перетащите полосу или потяните за её край.`;
+            return <button
+              key={a.id}
+              className={`bar${dragging?.id === a.id ? ' dragging' : ''}`}
+              style={{ left: `${start / totalDays * 100}%`, width: `${(end - start) / totalDays * 100}%`, top: `${7 + i * 36}px`, backgroundColor: p?.color || '#777' }}
+              title={title}
+              aria-label={title}
+              onPointerDown={event => beginDrag(event, a, 'move')}
+              onClick={() => { if (suppressClickRef.current !== a.id) edit(a); }}
+            >
+              <span className="resize-handle start" onPointerDown={event => beginDrag(event, a, 'start')} />
+              <span className="bar-label">{p?.name || a.projectId}</span>
+              <span className="resize-handle end" onPointerDown={event => beginDrag(event, a, 'end')} />
+            </button>;
+          })}
         </div></div>;
       })}
       </div></div></section>
     <div className="legend">{PROJECTS.map(p => <span key={p.id}><i style={{ background: p.color }} />{p.name}</span>)}</div>
-    <p className="hint">Нажмите на цветную полосу, чтобы изменить даты или проект. Назначения хранятся локально в этом браузере.</p>
+    <p className={`hint${dragging ? ' drag-readout' : ''}`} aria-live="polite">{dragging
+      ? `${dragging.mode === 'move' ? 'Новый интервал' : dragging.mode === 'start' ? 'Новое начало' : 'Новое окончание'}: ${fmt(dragging.startDate)} — ${fmt(dragging.endDate)}`
+      : 'Перетащите цветную полосу, чтобы сдвинуть интервал, или потяните за её край, чтобы изменить одну дату. Нажмите, чтобы открыть карточку.'}</p>
     {editing && <div className="overlay" onMouseDown={e => { if (e.target === e.currentTarget) setEditing(null); }}><form className="dialog" onSubmit={save}><h2>{editing.id ? 'Редактировать назначение' : 'Новое назначение'}</h2>
       <label>Сотрудник<select value={editing.employeeId} onChange={e => setEditing(a => ({ ...a, employeeId: e.target.value }))}>{PEOPLE.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select></label>
       <label>Проект<select value={editing.projectId} onChange={e => setEditing(a => ({ ...a, projectId: e.target.value }))}>{PROJECTS.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select></label>
