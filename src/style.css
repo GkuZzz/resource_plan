@@ -77,3 +77,15 @@ button:hover{filter:brightness(.96)}
 .person-heading{position:sticky;left:0;z-index:5;background:#f0f4fa}
 .person{position:sticky;left:0;z-index:4;background:white}
 @media(max-width:650px){.scale-switch{order:3}.week-prefix{display:none}.gantt.scale-weeks{min-width:1750px}}
+
+.bar.priority{background-image:repeating-linear-gradient(135deg,#ffffff18 0,#ffffff18 5px,#0000000b 5px,#0000000b 10px);box-shadow:0 2px 5px #1c376b1c,inset 0 0 0 1px #ffffff70}
+.allocation-mode{border:0;padding:0;margin:0;display:grid;gap:8px}
+.allocation-mode legend{padding:0;margin-bottom:7px;color:#647084;font-size:13px;font-weight:700}
+.dialog .allocation-mode label{display:flex;flex-direction:row;align-items:flex-start;gap:10px;padding:11px 12px;border:1px solid #d8dfeb;border-radius:9px;cursor:pointer}
+.dialog .allocation-mode label.selected{border-color:#7ca2e7;background:#f2f6ff}
+.dialog .allocation-mode input{width:auto;min-width:0;padding:0;margin:3px 0 0;accent-color:#326bd1}
+.allocation-mode span{display:flex;flex-direction:column;gap:3px}
+.allocation-mode strong{font-size:13px;color:#2c3850}
+.allocation-mode small{font-size:11px;color:#7b8799;font-weight:500}
+.conflict-note{margin:0;padding:10px 12px;border-radius:8px;background:#edf7f3;color:#427363;font-size:12px;line-height:1.45}
+.conflict-note.has-conflicts{background:#fff5e5;color:#8c5b15}

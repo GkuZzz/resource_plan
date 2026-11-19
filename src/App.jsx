@@ -1,4 +1,5 @@
 import React, { useMemo, useState, useEffect, useRef } from 'react';
+import { applyPriorityAssignment, newId, overlaps, shiftDate } from './schedule.js';
 
 const PROJECTS = [
   { id: 'lkk', name: 'ЛКК', color: '#4477d0' },
@@ -25,7 +26,6 @@ const utc = s => new Date(`${s}T00:00:00Z`).getTime();
 const iso = d => d.toISOString().slice(0, 10);
 const fmt = s => new Intl.DateTimeFormat('ru-RU', { day: '2-digit', month: 'short', year: 'numeric', timeZone: 'UTC' }).format(new Date(utc(s)));
 const days = (a, b) => (utc(b) - utc(a)) / 86400000;
-const shiftDate = (date, amount) => iso(new Date(utc(date) + amount * 86400000));
 const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
 const isoWeek = date => {
   const value = new Date(utc(date));
@@ -33,7 +33,7 @@ const isoWeek = date => {
   const yearStart = new Date(Date.UTC(value.getUTCFullYear(), 0, 1));
   return Math.ceil((((value - yearStart) / 86400000) + 1) / 7);
 };
-const blank = (year, employeeId = PEOPLE[0].id) => ({ employeeId, projectId: PROJECTS[0].id, startDate: `${year}-01-01`, endDate: `${year}-03-31` });
+const blank = (year, employeeId = PEOPLE[0].id) => ({ employeeId, projectId: PROJECTS[0].id, startDate: `${year}-01-01`, endDate: `${year}-03-31`, allocationMode: 'parallel' });
 function load() { try { const value = localStorage.getItem(STORAGE); return value === null ? INITIAL : JSON.parse(value); } catch { return INITIAL; } }
 
 export default function App() {
@@ -76,12 +76,16 @@ export default function App() {
   const periods = timelineScale === 'weeks' ? weeks : months;
   const visible = useMemo(() => assignments.filter(a => a.startDate <= last && a.endDate >= first && (projectFilter === 'all' || a.projectId === projectFilter)), [assignments, year, projectFilter]);
   const people = PEOPLE.filter(p => employeeFilter === 'all' || p.id === employeeFilter);
-  const edit = a => { setError(''); setEditing({ ...a }); };
+  const edit = a => { setError(''); setEditing({ allocationMode: 'parallel', ...a }); };
   const save = e => {
     e.preventDefault();
     if (editing.startDate > editing.endDate) { setError('Дата окончания не может быть раньше даты начала'); return; }
-    const next = { ...editing, id: editing.id || (globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`) };
-    setAssignments(old => editing.id ? old.map(a => a.id === editing.id ? next : a) : [...old, next]);
+    const next = { ...editing, id: editing.id || newId() };
+    setAssignments(old => next.allocationMode === 'priority'
+      ? applyPriorityAssignment(old, next, editing.id)
+      : editing.id
+        ? old.map(a => a.id === editing.id ? next : a)
+        : [...old, next]);
     setEditing(null);
   };
   const remove = () => { if (window.confirm('Удалить это назначение?')) { setAssignments(old => old.filter(a => a.id !== editing.id)); setEditing(null); } };
@@ -165,6 +169,10 @@ export default function App() {
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a'); link.href = url; link.download = 'resource-assignments.json'; link.click(); URL.revokeObjectURL(url);
   };
+  const conflictCount = editing ? assignments.filter(assignment => assignment.id !== editing.id
+    && assignment.employeeId === editing.employeeId
+    && assignment.projectId !== editing.projectId
+    && overlaps(assignment, editing)).length : 0;
   return <main className="page">
     <header className="top"><div><div className="eyebrow">YANDEX TRACKER · RESOURCE PLANNER</div><h1>Годовой план ресурсов</h1><p>Назначения сотрудников на проекты · пересечения разрешены</p></div><button className="primary" onClick={() => edit(blank(year))}>+ Назначить сотрудника</button></header>
     <section className="toolbar">
@@ -188,10 +196,11 @@ export default function App() {
             const p = PROJECTS.find(project => project.id === a.projectId);
             const start = Math.max(0, days(first, shown.startDate));
             const end = Math.min(totalDays, days(first, shown.endDate) + 1);
-            const title = `${p?.name || a.projectId}: ${fmt(shown.startDate)} — ${fmt(shown.endDate)}. Перетащите полосу или потяните за её край.`;
+            const isPriority = a.allocationMode === 'priority';
+            const title = `${p?.name || a.projectId}: ${fmt(shown.startDate)} — ${fmt(shown.endDate)}${isPriority ? ' · приоритетное назначение' : ''}. Перетащите полосу или потяните за её край.`;
             return <button
               key={a.id}
-              className={`bar${dragging?.id === a.id ? ' dragging' : ''}`}
+              className={`bar${dragging?.id === a.id ? ' dragging' : ''}${isPriority ? ' priority' : ''}`}
               style={{ left: `${start / totalDays * 100}%`, width: `${(end - start) / totalDays * 100}%`, top: `${7 + i * 36}px`, backgroundColor: p?.color || '#777' }}
               title={title}
               aria-label={title}
@@ -199,7 +208,7 @@ export default function App() {
               onClick={() => { if (suppressClickRef.current !== a.id) edit(a); }}
             >
               <span className="resize-handle start" onPointerDown={event => beginDrag(event, a, 'start')} />
-              <span className="bar-label">{p?.name || a.projectId}</span>
+              <span className="bar-label">{isPriority ? '★ ' : ''}{p?.name || a.projectId}</span>
               <span className="resize-handle end" onPointerDown={event => beginDrag(event, a, 'end')} />
             </button>;
           })}
@@ -214,6 +223,13 @@ export default function App() {
       <label>Сотрудник<select value={editing.employeeId} onChange={e => setEditing(a => ({ ...a, employeeId: e.target.value }))}>{PEOPLE.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select></label>
       <label>Проект<select value={editing.projectId} onChange={e => setEditing(a => ({ ...a, projectId: e.target.value }))}>{PROJECTS.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select></label>
       <div className="date-pair"><label>Начало<input required type="date" value={editing.startDate} onChange={e => setEditing(a => ({ ...a, startDate: e.target.value }))}/></label><label>Окончание<input required type="date" value={editing.endDate} onChange={e => setEditing(a => ({ ...a, endDate: e.target.value }))}/></label></div>
+      <fieldset className="allocation-mode"><legend>При пересечении сроков</legend>
+        <label className={editing.allocationMode === 'parallel' ? 'selected' : ''}><input type="radio" name="allocationMode" value="parallel" checked={editing.allocationMode === 'parallel'} onChange={e => setEditing(a => ({ ...a, allocationMode: e.target.value }))}/><span><strong>Вести параллельно</strong><small>Оставить другие проекты без изменений</small></span></label>
+        <label className={editing.allocationMode === 'priority' ? 'selected' : ''}><input type="radio" name="allocationMode" value="priority" checked={editing.allocationMode === 'priority'} onChange={e => setEditing(a => ({ ...a, allocationMode: e.target.value }))}/><span><strong>Приоритетный проект</strong><small>Разорвать другие проекты на этом интервале</small></span></label>
+      </fieldset>
+      {editing.allocationMode === 'priority' && <p className={`conflict-note${conflictCount ? ' has-conflicts' : ''}`}>{conflictCount
+        ? `Будет прервано назначений: ${conflictCount}. Части до и после выбранного интервала сохранятся.`
+        : 'Пересечений с другими проектами нет.'}</p>}
       {error && <p className="error" role="alert">{error}</p>}
       <div className="actions">{editing.id && <button type="button" className="danger" onClick={remove}>Удалить</button>}<span className="grow"/><button type="button" onClick={() => setEditing(null)}>Отмена</button><button className="primary" type="submit">Сохранить</button></div>
     </form></div>}
